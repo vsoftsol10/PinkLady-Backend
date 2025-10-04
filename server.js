@@ -10,8 +10,39 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const isProduction = process.env.NODE_ENV === 'production';
 
-// Security middleware
-app.use(helmet());
+// ============ CRITICAL: CORS MUST BE BEFORE OTHER MIDDLEWARE ============
+
+// CORS configuration - FIXED
+if (isProduction) {
+  // Production: Strict CORS
+  const corsOptions = {
+    origin: ['http://localhost:5173'], // Replace with actual domain
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    optionsSuccessStatus: 200
+  };
+  app.use(cors(corsOptions));
+} else {
+  // Development: Allow localhost origins
+  app.use(cors({
+    origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:5000'],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  }));
+}
+
+console.log(`🔧 CORS enabled for: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT (localhost:5173)'}`);
+
+// Security middleware (AFTER CORS)
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
+
+// Body parsers
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
 
 // Rate limiting - prevent abuse
 const limiter = rateLimit({
@@ -20,19 +51,6 @@ const limiter = rateLimit({
   message: 'Too many requests from this IP, please try again later.'
 });
 app.use('/api/', limiter);
-
-// CORS configuration
-const corsOptions = {
-  origin: isProduction 
-    ? ['https://yourdomain.com', 'https://www.yourdomain.com'] // Replace with your actual domain
-    : ['http://localhost:3000', 'http://localhost:3001'],
-  credentials: true,
-  optionsSuccessStatus: 200
-};
-app.use(cors(corsOptions));
-
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
 
 // Validate environment variables
 if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
@@ -65,6 +83,8 @@ app.get("/api/health", (req, res) => {
 app.post("/api/orders/create", async (req, res) => {
   try {
     const { amount, currency, receipt, notes } = req.body;
+
+    console.log('📨 Received order creation request:', { amount, currency, receipt });
 
     // Input validation
     if (!amount || !currency || !receipt) {
