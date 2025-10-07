@@ -12,7 +12,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 
 // CORS configuration - FIXED
 const allowedOrigins = isProduction 
-  ? [process.env.FRONTEND_URL || 'http://localhost:5173']
+  ? [process.env.FRONTEND_URL || 'https://pinkladypaapatchi.com/']
   : ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:5000'];
 
 const corsOptions = {
