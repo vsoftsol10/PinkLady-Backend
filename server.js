@@ -11,8 +11,14 @@ const PORT = process.env.PORT || 5000;
 const isProduction = process.env.NODE_ENV === 'production';
 
 // CORS configuration - FIXED
+// CORS configuration - FIXED
 const allowedOrigins = isProduction 
-  ? [process.env.FRONTEND_URL || 'https://pinkladypaapatchi.com/']
+  ? [
+      'https://pinklady.thevsoft.com',
+      'https://pinkladypaapatchi.com',
+      'https://www.pinklady.thevsoft.com',
+      'https://www.pinkladypaapatchi.com'
+    ]
   : ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:5000'];
 
 const corsOptions = {
@@ -20,7 +26,11 @@ const corsOptions = {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
-    if (allowedOrigins.indexOf(origin) !== -1) {
+    // Remove trailing slash for comparison
+    const normalizedOrigin = origin.replace(/\/$/, '');
+    const normalizedAllowed = allowedOrigins.map(o => o.replace(/\/$/, ''));
+    
+    if (normalizedAllowed.indexOf(normalizedOrigin) !== -1) {
       callback(null, true);
     } else {
       console.warn(`⚠️  CORS blocked request from: ${origin}`);
@@ -36,7 +46,7 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-console.log(`🔧 CORS enabled for: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT (localhost:5173)'}`);
+console.log(`🔧 CORS enabled for: ${isProduction ? allowedOrigins.join(', ') : 'DEVELOPMENT (localhost:5173)'}`);
 
 // Security middleware (AFTER CORS)
 app.use(helmet({
