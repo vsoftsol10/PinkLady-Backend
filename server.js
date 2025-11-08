@@ -10,8 +10,19 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const isProduction = process.env.NODE_ENV === 'production';
 
-// CORS configuration - FIXED
-// CORS configuration - FIXED
+// Validate environment variables FIRST
+if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+  console.error('❌ ERROR: Razorpay credentials not found in environment variables!');
+  process.exit(1);
+}
+
+// Check if using live keys
+const isLiveMode = process.env.RAZORPAY_KEY_ID.startsWith('rzp_live');
+if (isProduction && !isLiveMode) {
+  console.error('⚠️  WARNING: Running in PRODUCTION but using TEST Razorpay keys!');
+}
+
+// CORS configuration
 const allowedOrigins = isProduction 
   ? [
       'https://pinklady.thevsoft.com',
@@ -23,10 +34,8 @@ const allowedOrigins = isProduction
 
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
-    // Remove trailing slash for comparison
     const normalizedOrigin = origin.replace(/\/$/, '');
     const normalizedAllowed = allowedOrigins.map(o => o.replace(/\/$/, ''));
     
@@ -46,9 +55,7 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-console.log(`🔧 CORS enabled for: ${isProduction ? allowedOrigins.join(', ') : 'DEVELOPMENT (localhost:5173)'}`);
-
-// Security middleware (AFTER CORS)
+// Security middleware
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
@@ -57,19 +64,13 @@ app.use(helmet({
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-// Rate limiting - prevent abuse
+// Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: isProduction ? 100 : 1000, // Stricter in production
+  windowMs: 15 * 60 * 1000,
+  max: isProduction ? 100 : 1000,
   message: 'Too many requests from this IP, please try again later.'
 });
 app.use('/api/', limiter);
-
-// Validate environment variables
-if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
-  console.error('ERROR: Razorpay credentials not found in environment variables!');
-  process.exit(1);
-}
 
 // Initialize Razorpay
 const razorpayInstance = new Razorpay({
@@ -77,9 +78,15 @@ const razorpayInstance = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
-// Log mode on startup
-console.log(`\n🚀 Server starting in ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'} mode`);
-console.log(`🔑 Using Razorpay Key: ${process.env.RAZORPAY_KEY_ID.substring(0, 15)}...`);
+// Startup logs
+console.log(`\n${'='.repeat(60)}`);
+console.log(`🚀 SERVER STARTUP - ${new Date().toISOString()}`);
+console.log(`${'='.repeat(60)}`);
+console.log(`📍 Environment: ${isProduction ? '🔴 PRODUCTION' : '🟡 DEVELOPMENT'}`);
+console.log(`🔑 Razorpay Key: ${process.env.RAZORPAY_KEY_ID.substring(0, 20)}...`);
+console.log(`💳 Razorpay Mode: ${isLiveMode ? '✅ LIVE' : '⚠️  TEST'}`);
+console.log(`🌐 CORS Origins: ${allowedOrigins.join(', ')}`);
+console.log(`${'='.repeat(60)}\n`);
 
 // Health check route
 app.get("/api/health", (req, res) => {
@@ -87,7 +94,9 @@ app.get("/api/health", (req, res) => {
     success: true,
     message: "Server is running",
     mode: isProduction ? 'production' : 'development',
+    razorpay_mode: isLiveMode ? 'live' : 'test',
     razorpay_configured: !!(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET),
+    razorpay_key_prefix: process.env.RAZORPAY_KEY_ID.substring(0, 10),
     timestamp: new Date().toISOString()
   });
 });
@@ -97,7 +106,12 @@ app.post("/api/orders/create", async (req, res) => {
   try {
     const { amount, currency, receipt, notes } = req.body;
 
-    console.log('📨 Received order creation request:', { amount, currency, receipt });
+    console.log('📨 Order Creation Request:', {
+      amount,
+      currency,
+      receipt,
+      mode: isLiveMode ? 'LIVE' : 'TEST'
+    });
 
     // Input validation
     if (!amount || !currency || !receipt) {
@@ -107,7 +121,6 @@ app.post("/api/orders/create", async (req, res) => {
       });
     }
 
-    // Validate amount (should be positive integer)
     if (!Number.isInteger(amount) || amount <= 0) {
       return res.status(400).json({
         success: false,
@@ -122,7 +135,8 @@ app.post("/api/orders/create", async (req, res) => {
       notes: notes || {},
     };
 
-    console.log(`Creating order: ${receipt} for ₹${amount / 100}`);
+    console.log(`💰 Creating ${isLiveMode ? 'LIVE' : 'TEST'} order: ${receipt} for ₹${amount / 100}`);
+    
     const order = await razorpayInstance.orders.create(options);
 
     if (!order) {
@@ -132,12 +146,13 @@ app.post("/api/orders/create", async (req, res) => {
       });
     }
 
-    console.log(`✅ Order created successfully: ${order.id}`);
+    console.log(`✅ Order created: ${order.id} [${isLiveMode ? 'LIVE' : 'TEST'} MODE]`);
 
     res.json({
       success: true,
       order: order,
-      key_id: process.env.RAZORPAY_KEY_ID, // Safe to expose
+      key_id: process.env.RAZORPAY_KEY_ID,
+      mode: isLiveMode ? 'live' : 'test'
     });
   } catch (err) {
     console.error("❌ Error creating order:", err);
@@ -154,7 +169,6 @@ app.post("/api/orders/verify", async (req, res) => {
   try {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
 
-    // Input validation
     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
       return res.status(400).json({
         success: false,
@@ -162,26 +176,23 @@ app.post("/api/orders/verify", async (req, res) => {
       });
     }
 
-    // Create signature verification string
     const sign = razorpay_order_id + "|" + razorpay_payment_id;
-
-    // Generate expected signature
     const expectedSign = crypto
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
       .update(sign.toString())
       .digest("hex");
 
-    console.log(`Verifying payment: ${razorpay_payment_id}`);
+    console.log(`🔐 Verifying ${isLiveMode ? 'LIVE' : 'TEST'} payment: ${razorpay_payment_id}`);
 
-    // Compare signatures
     if (razorpay_signature === expectedSign) {
-      console.log(`✅ Payment verified successfully: ${razorpay_payment_id}`);
+      console.log(`✅ Payment verified: ${razorpay_payment_id} [${isLiveMode ? 'LIVE' : 'TEST'} MODE]`);
       
       res.json({
         success: true,
         message: "Payment verified successfully",
         payment_id: razorpay_payment_id,
-        order_id: razorpay_order_id
+        order_id: razorpay_order_id,
+        mode: isLiveMode ? 'live' : 'test'
       });
     } else {
       console.error(`❌ Signature mismatch for payment: ${razorpay_payment_id}`);
@@ -201,7 +212,7 @@ app.post("/api/orders/verify", async (req, res) => {
   }
 });
 
-// Webhook endpoint (Optional but recommended for production)
+// Webhook endpoint
 app.post("/api/webhook", (req, res) => {
   try {
     const webhookSignature = req.headers['x-razorpay-signature'];
@@ -223,11 +234,8 @@ app.post("/api/webhook", (req, res) => {
       const event = req.body.event;
       const payload = req.body.payload.payment.entity;
       
-      console.log(`📨 Webhook received: ${event}`);
+      console.log(`📨 Webhook: ${event} [${isLiveMode ? 'LIVE' : 'TEST'}]`);
       console.log(`Payment ID: ${payload.id}, Status: ${payload.status}`);
-      
-      // Here you can update your database based on webhook events
-      // For example: Update order status, send notifications, etc.
       
       res.json({ status: 'ok' });
     } else {
@@ -259,12 +267,16 @@ app.use((err, req, res, next) => {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`\n✅ Server is listening on Port: ${PORT}`);
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`✅ SERVER RUNNING`);
+  console.log(`${'='.repeat(60)}`);
+  console.log(`📍 Port: ${PORT}`);
   console.log(`🌍 Environment: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
-  console.log(`🔐 Razorpay Mode: ${process.env.RAZORPAY_KEY_ID.startsWith('rzp_live') ? 'LIVE' : 'TEST'}`);
-  console.log(`\nAvailable endpoints:`);
+  console.log(`💳 Razorpay Mode: ${isLiveMode ? '✅ LIVE' : '⚠️  TEST'}`);
+  console.log(`\n📋 Available endpoints:`);
   console.log(`  GET  /api/health`);
   console.log(`  POST /api/orders/create`);
   console.log(`  POST /api/orders/verify`);
-  console.log(`  POST /api/webhook\n`);
+  console.log(`  POST /api/webhook`);
+  console.log(`${'='.repeat(60)}\n`);
 });
