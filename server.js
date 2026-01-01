@@ -25,7 +25,7 @@ if (isProduction && !isLiveMode) {
 // CORS configuration
 const allowedOrigins = isProduction 
   ? [
-      'https://pinklady.thevsoft.com',
+      'https://paapatchi.thevsoft.com',
       'https://pinkladypaapatchi.com',
       'https://www.pinklady.thevsoft.com',
       'https://www.pinkladypaapatchi.com'
